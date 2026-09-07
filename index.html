@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="mr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>10 Minute Mail</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:linear-gradient(135deg,#0f172a,#1e1b4b);color:#fff;min-height:100vh;padding:24px}.wrap{max-width:760px;margin:auto}.card{background:rgba(255,255,255,.1);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.15);border-radius:22px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.25)}h1{margin:0 0 6px;font-size:30px}.sub{opacity:.75;margin-bottom:20px}.email{display:flex;gap:10px;align-items:center;background:rgba(0,0,0,.2);padding:14px;border-radius:14px}.email span{flex:1;word-break:break-all;font-weight:700}.timer{font-size:34px;font-weight:800;text-align:center;margin:20px 0}.actions{display:flex;gap:10px;flex-wrap:wrap}.btn{border:0;border-radius:12px;padding:12px 16px;font-weight:700;cursor:pointer}.primary{background:#fff;color:#111}.secondary{background:rgba(255,255,255,.14);color:#fff}.status{margin:14px 0;padding:11px 13px;border-radius:12px;background:rgba(255,255,255,.08);font-size:14px}.msg{padding:15px;border-radius:14px;background:rgba(0,0,0,.18);margin:10px 0;cursor:pointer}.msg b{display:block;margin-bottom:4px}.muted{opacity:.65;font-size:13px}.body{white-space:pre-wrap;line-height:1.55;margin-top:12px}.footer{opacity:.6;text-align:center;margin-top:16px;font-size:12px}a{color:#fff}.empty{text-align:center;opacity:.65;padding:30px 0}.danger{color:#fecaca}
+</style></head>
+<body><div class="wrap"><div class="card">
+<h1>⏱️ 10 Minute Mail</h1><div class="sub">Temporary email for testing and demos</div>
+<div class="email"><span id="address">Creating...</span><button class="btn secondary" id="copy">Copy</button></div>
+<div class="timer" id="timer">10:00</div>
+<div class="actions"><button class="btn primary" id="new">New Email</button><button class="btn secondary" id="refresh">Refresh Inbox</button></div>
+<div class="status" id="status">Starting...</div>
+<h2>Inbox</h2><div id="inbox" class="empty">No messages yet.</div>
+<div class="footer">Powered by <a href="https://mail.tm/" target="_blank" rel="noopener">Mail.tm</a></div>
+</div></div>
+<script>
+const API='https://api.mail.tm';let account=null,token=null,expiresAt=0,timerId=null,pollId=null;
+const $=id=>document.getElementById(id);function status(t,err=false){$('status').textContent=t;$('status').className='status'+(err?' danger':'')}
+async function api(path,opt={}){const h=new Headers(opt.headers||{});if(token)h.set('Authorization','Bearer '+token);if(opt.body)h.set('Content-Type','application/json');const r=await fetch(API+path,{...opt,headers:h});if(!r.ok)throw new Error((await r.text())||r.statusText);return r.status===204?null:r.json()}
+function randomName(){return 'tm'+Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4)}
+async function create(){clearInterval(timerId);clearInterval(pollId);token=null;account=null;$('address').textContent='Creating...';$('inbox').innerHTML='<div class="empty">Creating mailbox…</div>';status('Creating a temporary mailbox…');
+try{const d=await api('/domains?page=1');const domain=d['hydra:member']?.[0]?.domain||d.member?.[0]?.domain;if(!domain)throw Error('No domain available');const address=randomName()+'@'+domain;const password=crypto.randomUUID()+'A!';account=await api('/accounts',{method:'POST',body:JSON.stringify({address,password})});const t=await api('/token',{method:'POST',body:JSON.stringify({address,password})});token=t.token;$('address').textContent=address;expiresAt=Date.now()+600000;status('Mailbox ready. Inbox checks every 5 seconds.');startTimer();await refresh();pollId=setInterval(refresh,5000)}catch(e){console.error(e);$('address').textContent='Could not create email';status('Could not connect to Mail.tm. If this page is hosted, check the browser console/network tab.',true);$('inbox').innerHTML='<div class="empty">Failed to fetch</div>'}}
+function startTimer(){timerId=setInterval(()=>{const left=Math.max(0,expiresAt-Date.now());const s=Math.floor(left/1000);$('timer').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');if(left<=0){clearInterval(timerId);clearInterval(pollId);status('10 minutes expired. Create a new mailbox.');$('timer').textContent='00:00'}},250);}
+async function refresh(){if(!token)return;try{const d=await api('/messages?page=1');const list=d['hydra:member']||d.member||[];if(!list.length){$('inbox').innerHTML='<div class="empty">No messages yet.</div>';return} $('inbox').innerHTML='';list.forEach(m=>{const el=document.createElement('div');el.className='msg';el.innerHTML='<b>'+esc(m.subject||'(No subject)')+'</b><div class="muted">'+esc(m.from?.address||'Unknown')+'</div><div class="muted">'+new Date(m.createdAt||Date.now()).toLocaleString()+'</div>';el.onclick=()=>openMsg(m.id);$('inbox').appendChild(el)})}catch(e){console.error(e);status('Inbox refresh failed. Retrying…',true)}}
+async function openMsg(id){try{const m=await api('/messages/'+encodeURIComponent(id));const box=document.createElement('div');box.className='msg';box.innerHTML='<b>'+esc(m.subject||'(No subject)')+'</b><div class="muted">From: '+esc(m.from?.address||'')+'</div><div class="body">'+esc(m.text||m.intro||'')+'</div>';const old=document.querySelector('.opened');if(old)old.remove();box.classList.add('opened');$('inbox').prepend(box)}catch(e){status('Could not open message.',true)}}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+$('copy').onclick=async()=>{const v=$('address').textContent;if(v&&v.includes('@')){await navigator.clipboard.writeText(v);status('Email copied.')}};$('refresh').onclick=refresh;$('new').onclick=create;create();
+</script></body></html>
